@@ -3,7 +3,8 @@ import subprocess
 import time
 from glob import glob
 import argparse
-from lib.openai import transcribe_chunk
+from openai import OpenAI
+
 
 # CONFGIURATION
 CHUNK_LENGTH = 300  # seconds (5 minutes)
@@ -137,6 +138,16 @@ def main():
         print(f"Processing: {audio_file}")
         transcribe_audio_file(audio_file)
     print("All done!")
+
+
+def transcribe_chunk(chunk_path, language=None):
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    with open(chunk_path, "rb") as audio_file:
+        kwargs = {"model": "whisper-1", "file": audio_file}
+        if language:
+            kwargs["language"] = language
+        transcript = client.audio.transcriptions.create(**kwargs)
+    return transcript.text
 
 
 if __name__ == "__main__":
