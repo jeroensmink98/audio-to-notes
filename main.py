@@ -4,11 +4,12 @@ import time
 from glob import glob
 import argparse
 from openai import OpenAI
+import whisper
+
 
 
 # CONFGIURATION
 CHUNK_LENGTH = 300  # seconds (5 minutes)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 CHUNKS_DIR = "chunks"
 AUDIO_DIR = "input"  # Default input directory
 OUTPUT_DIR = "output"  # Default output directory
@@ -80,18 +81,63 @@ def chunk_audio(filepath, chunk_length=CHUNK_LENGTH, duration=None):
     return chunk_paths
 
 
+def detect_language_from_chunk(chunk_path, detection_duration=30):
+    """Detect language from first N seconds of audio chunk using local Whisper model."""
+    import tempfile
+    temp_file = None
+    try:
+        print(f"Detecting language from first {detection_duration} seconds of {chunk_path}...")
+        # Extract first N seconds to a temporary file for faster detection
+        temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+        temp_file.close()
+        
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-i",
+            chunk_path,
+            "-t",
+            str(detection_duration),
+            "-acodec",
+            "libmp3lame",
+            temp_file.name,
+        ]
+        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        model = whisper.load_model("tiny")  # Use 'tiny' for fastest detection
+        result = model.transcribe(temp_file.name, language=None)  # None = auto-detect
+        detected_language = result["language"]
+        print(f"Detected language: {detected_language}")
+        return detected_language
+    except Exception as e:
+        print(f"Language detection failed: {e}. Using fallback language: {INPUT_LANGUAGE}")
+        return INPUT_LANGUAGE
+    finally:
+        # Clean up temporary file
+        if temp_file and os.path.exists(temp_file.name):
+            os.unlink(temp_file.name)
+
+
 def transcribe_audio_file(audio_file):
     """Chunk the audio file, transcribe each chunk, and combine into a single text file."""
     duration = get_audio_duration(audio_file)
     print(f"Duration: {format_duration(duration)}")
     chunk_paths = chunk_audio(audio_file, duration=duration)
     print(f"Created {len(chunk_paths)} chunks.")
+    
+    # Detect language from first chunk
+    detected_language = None
+    if chunk_paths:
+        detected_language = detect_language_from_chunk(chunk_paths[0])
+    else:
+        detected_language = INPUT_LANGUAGE
+    
     transcript = ""
     for chunk_path in chunk_paths:
         while True:
             try:
                 print(f"Transcribing {chunk_path} ...")
-                text = transcribe_chunk(chunk_path, language=INPUT_LANGUAGE)
+                text = transcribe_chunk(chunk_path, language=detected_language)
                 transcript += text + "\n"
                 break
             except Exception as e:
@@ -105,8 +151,21 @@ def transcribe_audio_file(audio_file):
         f.write(transcript)
     print(f"Transcript written to {output_path}")
 
+def transcribe_chunk(chunk_path, language=None):
+    client = OpenAI()  # Automatically reads from OPENAI_API_KEY environment variable
+    with open(chunk_path, "rb") as audio_file:
+        kwargs = {"model": "whisper-1", "file": audio_file}
+        if language:
+            kwargs["language"] = language
+        transcript = client.audio.transcriptions.create(**kwargs)
+    return transcript.text
 
 def main():
+    # Check if OPENAI_API_KEY environment variable is set
+    if not os.getenv("OPENAI_API_KEY"):
+        print("Error: OPENAI_API_KEY environment variable is not set.")
+        return
+    
     parser = argparse.ArgumentParser(description="Audio to Notes Script")
     parser.add_argument(
         "audio_file",
@@ -140,14 +199,7 @@ def main():
     print("All done!")
 
 
-def transcribe_chunk(chunk_path, language=None):
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    with open(chunk_path, "rb") as audio_file:
-        kwargs = {"model": "whisper-1", "file": audio_file}
-        if language:
-            kwargs["language"] = language
-        transcript = client.audio.transcriptions.create(**kwargs)
-    return transcript.text
+
 
 
 if __name__ == "__main__":
