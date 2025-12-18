@@ -1,19 +1,19 @@
 import os
 import subprocess
 import time
+import tempfile
 from glob import glob
 import argparse
 from openai import OpenAI
 import whisper
-
-
+import torch
 
 # CONFGIURATION
 CHUNK_LENGTH = 300  # seconds (5 minutes)
 CHUNKS_DIR = "chunks"
 AUDIO_DIR = "input"  # Default input directory
 OUTPUT_DIR = "output"  # Default output directory
-INPUT_LANGUAGE = "nl"  # Default input language
+INPUT_LANGUAGE = "nl"  # Default input language (fallback)
 
 
 def get_audio_duration(filepath):
@@ -42,6 +42,99 @@ def format_duration(seconds):
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def diarize_audio(audio_file):
+    """Identify speakers and their time segments in audio using pyannote.audio."""
+    from pyannote.audio import Pipeline
+    
+    hf_token = os.getenv("HF_TOKEN")
+    if not hf_token:
+        raise ValueError("HF_TOKEN environment variable is required for speaker diarization")
+    
+    print("Loading speaker diarization model...")
+    pipeline = Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-3.1",
+        use_auth_token=hf_token
+    )
+    
+    # Auto-detect GPU/CPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    pipeline.to(device)
+    
+    print("Running speaker diarization...")
+    diarization = pipeline(audio_file)
+    
+    # Convert to list of segments
+    segments = []
+    for turn, _, speaker in diarization.itertracks(yield_label=True):
+        segments.append({
+            "start": turn.start,
+            "end": turn.end,
+            "speaker": speaker
+        })
+    
+    return segments
+
+
+def group_speaker_segments(segments, min_gap=0.5):
+    """Merge consecutive segments from the same speaker.
+    
+    Args:
+        segments: List of {start, end, speaker} dicts
+        min_gap: Maximum gap (seconds) between segments to merge
+    
+    Returns:
+        List of merged segments
+    """
+    if not segments:
+        return []
+    
+    grouped = []
+    current = segments[0].copy()
+    
+    for segment in segments[1:]:
+        # If same speaker and small gap, merge
+        if (segment["speaker"] == current["speaker"] and 
+            segment["start"] - current["end"] <= min_gap):
+            current["end"] = segment["end"]
+        else:
+            grouped.append(current)
+            current = segment.copy()
+    
+    grouped.append(current)
+    return grouped
+
+
+def extract_audio_segment(audio_file, start, end):
+    """Extract a specific time range from audio file using ffmpeg.
+    
+    Returns path to temporary file containing the segment.
+    """
+    temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+    temp_file.close()
+    
+    duration = end - start
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        audio_file,
+        "-ss",
+        str(start),
+        "-t",
+        str(duration),
+        "-acodec",
+        "libmp3lame",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        temp_file.name,
+    ]
+    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return temp_file.name
 
 
 def chunk_audio(filepath, chunk_length=CHUNK_LENGTH, duration=None):
@@ -160,6 +253,80 @@ def transcribe_chunk(chunk_path, language=None):
         transcript = client.audio.transcriptions.create(**kwargs)
     return transcript.text
 
+
+def transcribe_audio_file_with_diarization(audio_file):
+    """Transcribe audio file with speaker diarization."""
+    duration = get_audio_duration(audio_file)
+    print(f"Duration: {format_duration(duration)}")
+    
+    # Step 1: Run speaker diarization
+    segments = diarize_audio(audio_file)
+    unique_speakers = set(s["speaker"] for s in segments)
+    print(f"Found {len(unique_speakers)} speakers: {', '.join(sorted(unique_speakers))}")
+    
+    # Step 2: Group consecutive segments from same speaker
+    grouped_segments = group_speaker_segments(segments)
+    print(f"Grouped into {len(grouped_segments)} speech segments")
+    
+    # Step 3: Detect language from first segment
+    if grouped_segments:
+        first_segment_path = extract_audio_segment(
+            audio_file, 
+            grouped_segments[0]["start"], 
+            min(grouped_segments[0]["end"], grouped_segments[0]["start"] + 30)  # First 30s max
+        )
+        detected_language = detect_language_from_chunk(first_segment_path)
+        os.unlink(first_segment_path)
+    else:
+        detected_language = INPUT_LANGUAGE
+    
+    # Step 4: Transcribe each segment
+    transcript_parts = []
+    temp_files = []
+    
+    for i, segment in enumerate(grouped_segments):
+        print(f"Transcribing segment {i+1}/{len(grouped_segments)} ({segment['speaker']}: {format_duration(segment['start'])} - {format_duration(segment['end'])})...")
+        
+        # Extract segment audio
+        segment_path = extract_audio_segment(audio_file, segment["start"], segment["end"])
+        temp_files.append(segment_path)
+        
+        # Transcribe with retry
+        while True:
+            try:
+                text = transcribe_chunk(segment_path, language=detected_language)
+                transcript_parts.append({
+                    "speaker": segment["speaker"],
+                    "start": segment["start"],
+                    "end": segment["end"],
+                    "text": text.strip()
+                })
+                break
+            except Exception as e:
+                print(f"Error: {e}. Retrying in 5 seconds...")
+                time.sleep(5)
+    
+    # Clean up temp files
+    for temp_file in temp_files:
+        if os.path.exists(temp_file):
+            os.unlink(temp_file)
+    
+    # Step 5: Format output with speaker labels
+    formatted_transcript = ""
+    for part in transcript_parts:
+        start_str = format_duration(part["start"])
+        end_str = format_duration(part["end"])
+        formatted_transcript += f"[{start_str} - {end_str}] {part['speaker']}: {part['text']}\n"
+    
+    # Write transcript to file
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    base = os.path.splitext(os.path.basename(audio_file))[0]
+    output_path = os.path.join(OUTPUT_DIR, f"{base}_transcript_diarized.txt")
+    with open(output_path, "w") as f:
+        f.write(formatted_transcript)
+    print(f"Diarized transcript written to {output_path}")
+
+
 def main():
     # Check if OPENAI_API_KEY environment variable is set
     if not os.getenv("OPENAI_API_KEY"):
@@ -172,7 +339,18 @@ def main():
         nargs="?",
         help="Path to a single audio file to process (.mp3, .m4a, .amr, .mov, etc)",
     )
+    parser.add_argument(
+        "--diarize",
+        action="store_true",
+        help="Enable speaker diarization (requires HF_TOKEN environment variable)",
+    )
     args = parser.parse_args()
+
+    # Check for HF_TOKEN if diarization is requested
+    if args.diarize and not os.getenv("HF_TOKEN"):
+        print("Error: HF_TOKEN environment variable is required for speaker diarization.")
+        print("Get a token at https://huggingface.co/settings/tokens")
+        return
 
     if args.audio_file:
         audio_files = [args.audio_file]
@@ -195,7 +373,10 @@ def main():
         return
     for audio_file in audio_files:
         print(f"Processing: {audio_file}")
-        transcribe_audio_file(audio_file)
+        if args.diarize:
+            transcribe_audio_file_with_diarization(audio_file)
+        else:
+            transcribe_audio_file(audio_file)
     print("All done!")
 
 
