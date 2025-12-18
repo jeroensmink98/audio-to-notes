@@ -99,16 +99,25 @@ def main():
     parser.add_argument(
         "audio_file",
         nargs="?",
-        help="Path to a single audio file to process (.mp3, .m4a, .amr, etc)",
+        help="Path to a single audio file to process (.mp3, .m4a, .amr, .mov, etc)",
     )
     args = parser.parse_args()
 
     if args.audio_file:
         audio_files = [args.audio_file]
     else:
-        # Find audio files in input directory (supporting .m4a, .mp3, .mp4, .wav, .aac, .flac, .amr)
+        # Find audio files in input directory (supporting .m4a, .mp3, .mp4, .wav, .aac, .flac, .amr, .mov)
         audio_files = []
-        for ext in ("*.m4a", "*.mp3", "*.mp4", "*.wav", "*.aac", "*.flac", "*.amr"):
+        for ext in (
+            "*.m4a",
+            "*.mp3",
+            "*.mp4",
+            "*.wav",
+            "*.aac",
+            "*.flac",
+            "*.amr",
+            "*.mov",
+        ):
             audio_files.extend(glob(os.path.join(AUDIO_DIR, ext)))
     if not audio_files:
         print("No audio files found to process.")
