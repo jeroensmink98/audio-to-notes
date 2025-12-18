@@ -13,7 +13,7 @@ CHUNK_LENGTH = 300  # seconds (5 minutes)
 CHUNKS_DIR = "chunks"
 AUDIO_DIR = "input"  # Default input directory
 OUTPUT_DIR = "output"  # Default output directory
-INPUT_LANGUAGE = "nl"  # Default input language (fallback)
+INPUT_LANGUAGE = "en"  # Default input language (fallback)
 
 
 def get_audio_duration(filepath):
@@ -47,6 +47,7 @@ def format_duration(seconds):
 def diarize_audio(audio_file):
     """Identify speakers and their time segments in audio using pyannote.audio."""
     from pyannote.audio import Pipeline
+    import torchaudio
     
     hf_token = os.getenv("HF_TOKEN")
     if not hf_token:
@@ -55,16 +56,50 @@ def diarize_audio(audio_file):
     print("Loading speaker diarization model...")
     pipeline = Pipeline.from_pretrained(
         "pyannote/speaker-diarization-3.1",
-        use_auth_token=hf_token
+        token=hf_token
     )
     
-    # Auto-detect GPU/CPU
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    pipeline.to(device)
+    # Auto-detect GPU/CPU with compatibility check
+    device = torch.device("cpu")  # Default to CPU
+    if torch.cuda.is_available():
+        try:
+            # Try to create a test tensor on GPU to check compatibility
+            test_tensor = torch.zeros(1).cuda()
+            device = torch.device("cuda")
+            print(f"Using device: {device} (GPU: {torch.cuda.get_device_name(0)})")
+        except Exception as e:
+            print(f"GPU detected but not compatible: {e}")
+            print("Falling back to CPU")
+            device = torch.device("cpu")
+    else:
+        print("No GPU available, using CPU")
+    
+    try:
+        pipeline.to(device)
+    except Exception as e:
+        print(f"Failed to load pipeline on {device}: {e}")
+        print("Falling back to CPU")
+        device = torch.device("cpu")
+        pipeline.to(device)
+    
+    # Preload audio using torchaudio to avoid torchcodec issues
+    print("Loading audio file...")
+    waveform, sample_rate = torchaudio.load(audio_file)
+    # Convert to format pyannote expects: dict with 'waveform' and 'sample_rate'
+    audio_input = {
+        "waveform": waveform,
+        "sample_rate": sample_rate
+    }
     
     print("Running speaker diarization...")
-    diarization = pipeline(audio_file)
+    diarization_output = pipeline(audio_input)
+    
+    # Access the Annotation object from DiarizeOutput
+    # (newer pyannote.audio versions return DiarizeOutput instead of Annotation)
+    if hasattr(diarization_output, 'speaker_diarization'):
+        diarization = diarization_output.speaker_diarization
+    else:
+        diarization = diarization_output
     
     # Convert to list of segments
     segments = []
@@ -268,17 +303,12 @@ def transcribe_audio_file_with_diarization(audio_file):
     grouped_segments = group_speaker_segments(segments)
     print(f"Grouped into {len(grouped_segments)} speech segments")
     
-    # Step 3: Detect language from first segment
-    if grouped_segments:
-        first_segment_path = extract_audio_segment(
-            audio_file, 
-            grouped_segments[0]["start"], 
-            min(grouped_segments[0]["end"], grouped_segments[0]["start"] + 30)  # First 30s max
-        )
-        detected_language = detect_language_from_chunk(first_segment_path)
-        os.unlink(first_segment_path)
-    else:
-        detected_language = INPUT_LANGUAGE
+    # Step 3: Detect language from first 30 seconds of the audio
+    # (not from the first speaker segment, which may be too short)
+    first_segment_path = extract_audio_segment(audio_file, 0, 30)
+    detected_language = detect_language_from_chunk(first_segment_path)
+    os.unlink(first_segment_path)
+    print(f"Using detected language: {detected_language}")
     
     # Step 4: Transcribe each segment
     transcript_parts = []
