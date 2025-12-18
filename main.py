@@ -34,12 +34,21 @@ def get_audio_duration(filepath):
     return float(result.stdout.strip())
 
 
-def chunk_audio(filepath, chunk_length=CHUNK_LENGTH):
+def format_duration(seconds):
+    """Format duration in seconds to HH:MM:SS format."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def chunk_audio(filepath, chunk_length=CHUNK_LENGTH, duration=None):
     """Split audio file into chunks using ffmpeg."""
     basename, ext = os.path.splitext(os.path.basename(filepath))
     ext = ext.lstrip(".")  # Remove leading dot
     os.makedirs(CHUNKS_DIR, exist_ok=True)
-    duration = get_audio_duration(filepath)
+    if duration is None:
+        duration = get_audio_duration(filepath)
     chunk_paths = []
     # Always output chunks as .mp3 for OpenAI Whisper API compatibility
     # This ensures .amr and other formats are converted properly
@@ -72,7 +81,9 @@ def chunk_audio(filepath, chunk_length=CHUNK_LENGTH):
 
 def transcribe_audio_file(audio_file):
     """Chunk the audio file, transcribe each chunk, and combine into a single text file."""
-    chunk_paths = chunk_audio(audio_file)
+    duration = get_audio_duration(audio_file)
+    print(f"Duration: {format_duration(duration)}")
+    chunk_paths = chunk_audio(audio_file, duration=duration)
     print(f"Created {len(chunk_paths)} chunks.")
     transcript = ""
     for chunk_path in chunk_paths:
