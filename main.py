@@ -14,6 +14,7 @@ CHUNKS_DIR = "chunks"
 AUDIO_DIR = "input"  # Default input directory
 OUTPUT_DIR = "output"  # Default output directory
 INPUT_LANGUAGE = "en"  # Default input language (fallback)
+MIN_SEGMENT_DURATION = 10  # Minimum segment duration (seconds) for diarized transcription
 
 
 def get_audio_duration(filepath):
@@ -114,12 +115,13 @@ def diarize_audio(audio_file):
     return segments
 
 
-def group_speaker_segments(segments, min_gap=0.5):
+def group_speaker_segments(segments, min_gap=0.5, min_duration=MIN_SEGMENT_DURATION):
     """Merge consecutive segments from the same speaker.
     
     Args:
         segments: List of {start, end, speaker} dicts
         min_gap: Maximum gap (seconds) between segments to merge
+        min_duration: Minimum duration (seconds) for a segment before allowing a new segment
     
     Returns:
         List of merged segments
@@ -131,11 +133,19 @@ def group_speaker_segments(segments, min_gap=0.5):
     current = segments[0].copy()
     
     for segment in segments[1:]:
-        # If same speaker and small gap, merge
-        if (segment["speaker"] == current["speaker"] and 
-            segment["start"] - current["end"] <= min_gap):
-            current["end"] = segment["end"]
+        current_duration = current["end"] - current["start"]
+        gap = segment["start"] - current["end"]
+        
+        # Merge if same speaker AND (duration < min_duration OR gap <= min_gap)
+        if segment["speaker"] == current["speaker"]:
+            if current_duration < min_duration or gap <= min_gap:
+                current["end"] = segment["end"]
+            else:
+                # Same speaker but duration reached and gap is large enough
+                grouped.append(current)
+                current = segment.copy()
         else:
+            # Different speaker - always start new segment
             grouped.append(current)
             current = segment.copy()
     
