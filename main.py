@@ -157,6 +157,7 @@ def extract_audio_segment(audio_file, start, end):
     """Extract a specific time range from audio file using ffmpeg.
     
     Returns path to temporary file containing the segment.
+    Raises RuntimeError if ffmpeg command fails.
     """
     temp_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
     temp_file.close()
@@ -179,7 +180,19 @@ def extract_audio_segment(audio_file, start, end):
         "2",
         temp_file.name,
     ]
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    
+    if result.returncode != 0:
+        # Clean up the temporary file if ffmpeg failed
+        try:
+            os.unlink(temp_file.name)
+        except OSError:
+            pass
+        raise RuntimeError(
+            f"ffmpeg failed to extract audio segment from {start}s to {end}s. "
+            f"Error: {result.stderr.decode('utf-8', errors='ignore')}"
+        )
+    
     return temp_file.name
 
 
