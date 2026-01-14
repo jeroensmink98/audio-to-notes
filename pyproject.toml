@@ -5,8 +5,11 @@ description = "audio-to-notes"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "debugpy>=1.8.19",
     "openai>=1.93.0",
     "openai-whisper>=20250625",
+    "pyannote-audio>=3.3.0",
     "pydub>=0.25.1",
     "python-dotenv>=1.1.1",
+    "torch>=2.0.0",
 ]

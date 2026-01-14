@@ -1,6 +1,6 @@
 # Audio to Notes
 
-Transcribes audio files using OpenAI Whisper API.
+Transcribes audio files using OpenAI Whisper API with optional speaker diarization.
 
 ## Prerequisites
 
@@ -8,26 +8,62 @@ Transcribes audio files using OpenAI Whisper API.
 - [uv](https://github.com/astral-sh/uv) package manager
 - [ffmpeg](https://ffmpeg.org/) (for audio processing)
 - OpenAI API key
+- HuggingFace token (optional, for speaker diarization)
+
+## Setup
+
+Create a `.env` file with your API keys:
+
+```bash
+OPENAI_API_KEY=your_openai_key_here
+HF_TOKEN=your_huggingface_token_here  # Optional, for diarization
+```
+
+### HuggingFace Token (for Speaker Diarization)
+
+If you want to use speaker diarization, you need a HuggingFace token:
+
+1. Create a free account at https://huggingface.co
+2. Accept the model terms at:
+   - https://huggingface.co/pyannote/speaker-diarization-3.1
+   - https://huggingface.co/pyannote/segmentation-3.0
+3. Create an access token at https://huggingface.co/settings/tokens
+4. Add `HF_TOKEN=your_token_here` to your `.env` file
 
 ## Usage
 
-Create a `.env` file with your `OPENAI_API_KEY`:
-
-```bash
-echo "OPENAI_API_KEY=your_key_here" > .env
-```
-
-Run the script:
+Basic transcription:
 
 ```bash
 uv run --env-file .env main.py <audio_file>
 ```
 
+With speaker diarization (identifies different speakers):
+
+```bash
+uv run --env-file .env main.py --diarize <audio_file>
+```
+
 ## How it works
 
-The audio file is split into 5-minute chunks using ffmpeg, each chunk is transcribed via OpenAI Whisper, and the transcripts are combined into a single output file.
+**Basic mode**: The audio file is split into 5-minute chunks using ffmpeg, each chunk is transcribed via OpenAI Whisper, and the transcripts are combined into a single output file.
 
-## Cost & Output
+**Diarization mode**: Speaker diarization is performed using pyannote.audio to identify different speakers, then each speaker segment is transcribed separately with speaker labels.
 
-- **Cost**: ~$0.36 per hour of audio ($0.006 per minute)
-- **Output**: Transcripts are saved to the `output/` directory
+## Output
+
+Transcripts are saved to the `output/` directory:
+
+- Basic: `<filename>_transcript.txt`
+- Diarized: `<filename>_transcript_diarized.txt`
+
+Diarized output format:
+```
+[00:00:00 - 00:00:05] SPEAKER_00: Hello, welcome to the meeting.
+[00:00:05 - 00:00:12] SPEAKER_01: Thank you for having me.
+```
+
+## Cost
+
+- **Transcription**: ~$0.36 per hour of audio ($0.006 per minute)
+- **Diarization**: Free (runs locally using pyannote.audio)
