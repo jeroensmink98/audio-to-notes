@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from database import init_db, get_db, Job
+from database import init_db, get_db, Job, SessionLocal
 from core import transcribe_audio_file, transcribe_audio_file_with_diarization
 
 # Configure logging to avoid leaking sensitive data
@@ -35,7 +35,10 @@ JOBS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # In-memory job queue and worker state
 job_queue: asyncio.Queue = asyncio.Queue()
-api_keys_cache: Dict[str, str] = {}  # job_id -> api_key (memory only)
+# API keys cache: job_id -> api_key (memory only, never persisted)
+# Note: This is safe in asyncio as it's single-threaded. If moving to multi-worker
+# setup, consider using a thread-safe data structure or external cache like Redis.
+api_keys_cache: Dict[str, str] = {}
 worker_task: Optional[asyncio.Task] = None
 scheduler: Optional[BackgroundScheduler] = None
 
@@ -96,7 +99,6 @@ async def worker():
             openai_api_key = job_data["openai_api_key"]
             
             # Get a new DB session for this job
-            from database import SessionLocal
             db = SessionLocal()
             try:
                 await process_job(job_id, audio_path, diarize, openai_api_key, db)
@@ -112,7 +114,6 @@ async def worker():
 def cleanup_old_jobs():
     """Clean up jobs older than 2 hours (retention policy)."""
     logger.info("Running cleanup task for jobs older than 2 hours")
-    from database import SessionLocal
     db = SessionLocal()
     try:
         cutoff_time = datetime.utcnow() - timedelta(hours=2)

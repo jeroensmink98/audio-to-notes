@@ -70,9 +70,10 @@ def diarize_audio(audio_file):
         try:
             # Try to create a test tensor on GPU to check compatibility
             test_tensor = torch.zeros(1).cuda()
-            del test_tensor  # Clean up test tensor
+            # If successful, GPU is compatible
             device = torch.device("cuda")
             print(f"Using device: {device} (GPU: {torch.cuda.get_device_name(0)})")
+            torch.cuda.empty_cache()  # Clear GPU memory after test
         except Exception as e:
             print(f"GPU detected but not compatible: {e}")
             print("Falling back to CPU")
