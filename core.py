@@ -1,14 +1,14 @@
+"""Core transcription functionality that can be used by both CLI and API."""
 import os
 import subprocess
 import time
 import tempfile
 from glob import glob
-import argparse
 from openai import OpenAI
 import whisper
 import torch
 
-# CONFGIURATION
+# CONFIGURATION
 CHUNK_LENGTH = 300  # seconds (5 minutes)
 CHUNKS_DIR = "chunks"
 AUDIO_DIR = "input"  # Default input directory
@@ -70,8 +70,10 @@ def diarize_audio(audio_file):
         try:
             # Try to create a test tensor on GPU to check compatibility
             test_tensor = torch.zeros(1).cuda()
+            # If successful, GPU is compatible
             device = torch.device("cuda")
             print(f"Using device: {device} (GPU: {torch.cuda.get_device_name(0)})")
+            torch.cuda.empty_cache()  # Clear GPU memory after test
         except Exception as e:
             print(f"GPU detected but not compatible: {e}")
             print("Falling back to CPU")
@@ -271,8 +273,37 @@ def detect_language_from_chunk(chunk_path, detection_duration=30):
             os.unlink(temp_file.name)
 
 
-def transcribe_audio_file(audio_file):
-    """Chunk the audio file, transcribe each chunk, and combine into a single text file."""
+def transcribe_chunk(chunk_path, language=None, openai_api_key=None):
+    """Transcribe a single audio chunk using OpenAI Whisper API.
+    
+    Args:
+        chunk_path: Path to audio file to transcribe
+        language: Optional language code
+        openai_api_key: Optional API key (if not provided, uses OPENAI_API_KEY env var)
+    """
+    if openai_api_key:
+        client = OpenAI(api_key=openai_api_key)
+    else:
+        client = OpenAI()  # Automatically reads from OPENAI_API_KEY environment variable
+    with open(chunk_path, "rb") as audio_file:
+        kwargs = {"model": "whisper-1", "file": audio_file}
+        if language:
+            kwargs["language"] = language
+        transcript = client.audio.transcriptions.create(**kwargs)
+    return transcript.text
+
+
+def transcribe_audio_file(audio_file, output_dir=OUTPUT_DIR, openai_api_key=None):
+    """Chunk the audio file, transcribe each chunk, and combine into a single text file.
+    
+    Args:
+        audio_file: Path to audio file
+        output_dir: Directory to write transcript to
+        openai_api_key: Optional API key (if not provided, uses OPENAI_API_KEY env var)
+        
+    Returns:
+        Path to the output transcript file
+    """
     duration = get_audio_duration(audio_file)
     print(f"Duration: {format_duration(duration)}")
     chunk_paths = chunk_audio(audio_file, duration=duration)
@@ -290,33 +321,33 @@ def transcribe_audio_file(audio_file):
         while True:
             try:
                 print(f"Transcribing {chunk_path} ...")
-                text = transcribe_chunk(chunk_path, language=detected_language)
+                text = transcribe_chunk(chunk_path, language=detected_language, openai_api_key=openai_api_key)
                 transcript += text + "\n"
                 break
             except Exception as e:
                 print(f"Error: {e}. Retrying in 5 seconds...")
                 time.sleep(5)
     # Write transcript to file
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     base = os.path.splitext(os.path.basename(audio_file))[0]
-    output_path = os.path.join(OUTPUT_DIR, f"{base}_transcript.txt")
+    output_path = os.path.join(output_dir, f"{base}_transcript.txt")
     with open(output_path, "w") as f:
         f.write(transcript)
     print(f"Transcript written to {output_path}")
+    return output_path
 
 
-def transcribe_chunk(chunk_path, language=None):
-    client = OpenAI()  # Automatically reads from OPENAI_API_KEY environment variable
-    with open(chunk_path, "rb") as audio_file:
-        kwargs = {"model": "whisper-1", "file": audio_file}
-        if language:
-            kwargs["language"] = language
-        transcript = client.audio.transcriptions.create(**kwargs)
-    return transcript.text
-
-
-def transcribe_audio_file_with_diarization(audio_file):
-    """Transcribe audio file with speaker diarization."""
+def transcribe_audio_file_with_diarization(audio_file, output_dir=OUTPUT_DIR, openai_api_key=None):
+    """Transcribe audio file with speaker diarization.
+    
+    Args:
+        audio_file: Path to audio file
+        output_dir: Directory to write transcript to
+        openai_api_key: Optional API key (if not provided, uses OPENAI_API_KEY env var)
+        
+    Returns:
+        Path to the output transcript file
+    """
     duration = get_audio_duration(audio_file)
     print(f"Duration: {format_duration(duration)}")
 
@@ -357,7 +388,7 @@ def transcribe_audio_file_with_diarization(audio_file):
             # Transcribe with retry
             while True:
                 try:
-                    text = transcribe_chunk(segment_path, language=detected_language)
+                    text = transcribe_chunk(segment_path, language=detected_language, openai_api_key=openai_api_key)
                     transcript_parts.append(
                         {
                             "speaker": segment["speaker"],
@@ -386,68 +417,10 @@ def transcribe_audio_file_with_diarization(audio_file):
         )
 
     # Write transcript to file
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     base = os.path.splitext(os.path.basename(audio_file))[0]
-    output_path = os.path.join(OUTPUT_DIR, f"{base}_transcript_diarized.txt")
+    output_path = os.path.join(output_dir, f"{base}_transcript_diarized.txt")
     with open(output_path, "w") as f:
         f.write(formatted_transcript)
     print(f"Diarized transcript written to {output_path}")
-
-
-def main():
-    # Check if OPENAI_API_KEY environment variable is set
-    if not os.getenv("OPENAI_API_KEY"):
-        print("Error: OPENAI_API_KEY environment variable is not set.")
-        return
-
-    parser = argparse.ArgumentParser(description="Audio to Notes Script")
-    parser.add_argument(
-        "audio_file",
-        nargs="?",
-        help="Path to a single audio file to process (.mp3, .m4a, .amr, .mov, etc)",
-    )
-    parser.add_argument(
-        "--diarize",
-        action="store_true",
-        help="Enable speaker diarization (requires HF_TOKEN environment variable)",
-    )
-    args = parser.parse_args()
-
-    # Check for HF_TOKEN if diarization is requested
-    if args.diarize and not os.getenv("HF_TOKEN"):
-        print(
-            "Error: HF_TOKEN environment variable is required for speaker diarization."
-        )
-        print("Get a token at https://huggingface.co/settings/tokens")
-        return
-
-    if args.audio_file:
-        audio_files = [args.audio_file]
-    else:
-        # Find audio files in input directory (supporting .m4a, .mp3, .mp4, .wav, .aac, .flac, .amr, .mov)
-        audio_files = []
-        for ext in (
-            "*.m4a",
-            "*.mp3",
-            "*.mp4",
-            "*.wav",
-            "*.aac",
-            "*.flac",
-            "*.amr",
-            "*.mov",
-        ):
-            audio_files.extend(glob(os.path.join(AUDIO_DIR, ext)))
-    if not audio_files:
-        print("No audio files found to process.")
-        return
-    for audio_file in audio_files:
-        print(f"Processing: {audio_file}")
-        if args.diarize:
-            transcribe_audio_file_with_diarization(audio_file)
-        else:
-            transcribe_audio_file(audio_file)
-    print("All done!")
-
-
-if __name__ == "__main__":
-    main()
+    return output_path
