@@ -20,7 +20,15 @@ Audio to Notes is a Python CLI tool that transcribes audio files using the OpenA
 
 ```
 /
-├── main.py           # Main application code (all logic in single file)
+├── main.py           # CLI wrapper - argument parsing and file I/O only
+├── core/             # Core transcription module (reusable library)
+│   ├── __init__.py   # Public API exports
+│   └── transcription.py  # Pure transcription logic
+├── tests/            # Test suite
+│   ├── inputs/       # Test audio files
+│   ├── outputs/      # Expected test outputs
+│   ├── test_core.py  # Unit tests for core module
+│   └── test_integration.py  # Integration tests
 ├── pyproject.toml    # Project dependencies and metadata
 ├── uv.lock           # Locked dependencies
 ├── .env              # Environment variables (not in git)
@@ -68,12 +76,39 @@ uv run --env-file .env main.py
 
 ## Key Code Patterns
 
+### Architecture
+The codebase follows a clean separation of concerns:
+- **`core/` module**: Pure transcription logic with no CLI/UI/HTTP dependencies
+- **`main.py`**: Thin CLI wrapper that handles argument parsing and file I/O
+
+### Core Module API
+The `core` module provides:
+
+**Data Classes:**
+- `TranscriptionResult`: Contains `text` and `language`
+- `DiarizedTranscriptionResult`: Contains `parts`, `language`, `speakers`, and `format_transcript()` method
+- `TranscriptPart`: Contains `speaker`, `start`, `end`, `text`
+
+**Main Functions:**
+- `transcribe_audio()`: Basic chunked transcription
+- `transcribe_audio_with_diarization()`: Transcription with speaker identification
+
+**Utility Functions:**
+- `get_audio_duration()`, `format_duration()`, `chunk_audio()`, `extract_audio_segment()`
+- `detect_language_from_chunk()`, `diarize_audio()`, `group_speaker_segments()`
+
 ### Configuration Constants
-All configuration is defined at the top of `main.py`:
-- `CHUNK_LENGTH` - Audio chunk size in seconds (5 minutes)
+All configuration defaults are defined in `core/transcription.py` and exported via `core/__init__.py`:
+- `DEFAULT_CHUNK_LENGTH` - Audio chunk size in seconds (5 minutes)
+- `DEFAULT_MIN_SEGMENT_DURATION` - Minimum segment duration for diarization
+- `DEFAULT_INPUT_LANGUAGE` - Fallback language code
+
+```python
+from core import DEFAULT_CHUNK_LENGTH, DEFAULT_MIN_SEGMENT_DURATION
+```
+
+CLI-specific paths are in `main.py`:
 - `CHUNKS_DIR`, `AUDIO_DIR`, `OUTPUT_DIR` - Directory paths
-- `INPUT_LANGUAGE` - Fallback language code
-- `MIN_SEGMENT_DURATION` - Minimum segment duration for diarization
 
 ### Audio Processing Flow
 1. **Basic mode**: Audio → Chunk (5 min) → Transcribe each → Combine
@@ -91,18 +126,44 @@ All configuration is defined at the top of `main.py`:
 
 ## Common Development Tasks
 
+### Using the Core Module Programmatically
+```python
+from openai import OpenAI
+from core import transcribe_audio, transcribe_audio_with_diarization
+
+client = OpenAI()
+
+# Basic transcription
+result = transcribe_audio(
+    audio_file="audio.mp3",
+    openai_client=client,
+    chunks_dir="/tmp/chunks",
+    progress_callback=print,  # Optional
+)
+print(result.text, result.language)
+
+# With diarization
+result = transcribe_audio_with_diarization(
+    audio_file="audio.mp3",
+    openai_client=client,
+    hf_token="your_hf_token",
+    progress_callback=print,
+)
+print(result.format_transcript())
+```
+
 ### Adding a New Audio Format
-1. Add the extension to the glob patterns in `main()` function (line ~414)
+1. Add the extension to the glob patterns in `main()` function in `main.py`
 2. No other changes needed - ffmpeg handles format conversion automatically
 
 ### Modifying Chunk Size
-Update `CHUNK_LENGTH` constant at the top of `main.py`
+Update `DEFAULT_CHUNK_LENGTH` constant in `core/transcription.py`
 
 ### Adding New CLI Arguments
-Use `argparse` - see existing `--diarize` flag for reference
+Use `argparse` in `main.py` - see existing `--diarize` flag for reference
 
 ### Changing Output Format
-Modify the formatting in `transcribe_audio_file()` or `transcribe_audio_file_with_diarization()` functions
+Modify the `format_transcript()` method in `DiarizedTranscriptionResult` class in `core/transcription.py`
 
 ## Important Notes
 
@@ -125,10 +186,30 @@ The tool supports: `.m4a`, `.mp3`, `.mp4`, `.wav`, `.aac`, `.flac`, `.amr`, `.mo
 
 ## Testing
 
-There are currently no automated tests in this project. When adding tests:
-- Use `pytest` as the testing framework
-- Add test dependencies to `pyproject.toml`
-- Mock external API calls (OpenAI, HuggingFace)
+The project uses `pytest` for testing. Tests are located in the `tests/` directory.
+
+### Running Tests
+```bash
+# Run all tests
+PYTHONPATH=. python -m pytest tests/ -v
+
+# Run only unit tests (no ffmpeg required)
+PYTHONPATH=. python -m pytest tests/test_core.py -v
+
+# Run integration tests (requires ffmpeg)
+PYTHONPATH=. python -m pytest tests/test_integration.py -v
+```
+
+### Test Structure
+- `tests/test_core.py`: Unit tests for pure functions and data classes (26 tests)
+- `tests/test_integration.py`: Integration tests using real audio files (skipped if ffmpeg unavailable)
+- `tests/inputs/`: Test audio files (e.g., `jfk_speech_input.mp3`)
+- `tests/outputs/`: Expected test outputs
+
+### Writing New Tests
+- Mock external API calls (OpenAI, HuggingFace) for unit tests
+- Use `@pytest.mark.skipif` to skip tests when dependencies are unavailable
+- Test data classes and pure functions without mocking
 
 ## Dependencies
 
