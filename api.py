@@ -96,7 +96,8 @@ async def worker():
             openai_api_key = job_data["openai_api_key"]
             
             # Get a new DB session for this job
-            db = next(get_db())
+            from database import SessionLocal
+            db = SessionLocal()
             try:
                 await process_job(job_id, audio_path, diarize, openai_api_key, db)
             finally:
@@ -111,7 +112,8 @@ async def worker():
 def cleanup_old_jobs():
     """Clean up jobs older than 2 hours (retention policy)."""
     logger.info("Running cleanup task for jobs older than 2 hours")
-    db = next(get_db())
+    from database import SessionLocal
+    db = SessionLocal()
     try:
         cutoff_time = datetime.utcnow() - timedelta(hours=2)
         old_jobs = db.query(Job).filter(Job.created_at < cutoff_time).all()
