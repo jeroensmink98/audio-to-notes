@@ -83,21 +83,29 @@ Health check endpoint.
 
 ## Running the Server
 
-### Option 1: Using uvicorn directly
+### Option 1: Using the startup script
 ```bash
-uvicorn api:app --host 0.0.0.0 --port 8000
+# From project root
+./backend/api/start_api.sh
 ```
 
-### Option 2: With auto-reload for development
+### Option 2: Using uvicorn directly
 ```bash
-uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+# From project root
+uvicorn backend.api.api:app --host 0.0.0.0 --port 8000
 ```
 
-### Option 3: With environment variables
+### Option 3: With auto-reload for development
+```bash
+# From project root
+uvicorn backend.api.api:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Option 4: With environment variables
 ```bash
 # For diarization support
 export HF_TOKEN=your_huggingface_token
-uvicorn api:app --host 0.0.0.0 --port 8000
+uvicorn backend.api.api:app --host 0.0.0.0 --port 8000
 ```
 
 ## Configuration

@@ -1,5 +1,6 @@
 """FastAPI backend for audio transcription with job queue and retention."""
 import os
+import sys
 import uuid
 import shutil
 import asyncio
@@ -9,12 +10,15 @@ from typing import Dict, Optional
 import logging
 from contextlib import asynccontextmanager
 
+# Add parent directory to path to import core and database modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
+
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from database import init_db, get_db, Job, SessionLocal
+from backend.api.database import init_db, get_db, Job, SessionLocal
 from core import transcribe_audio_file, transcribe_audio_file_with_diarization
 
 # Configure logging to avoid leaking sensitive data

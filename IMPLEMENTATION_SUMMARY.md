@@ -3,6 +3,28 @@
 ## Overview
 Successfully implemented a production-ready FastAPI backend for the audio-to-notes application with asynchronous job processing, SQLite persistence, and automatic retention policy.
 
+## Project Structure
+
+The code is organized into separate modules:
+
+```
+audio-to-notes/
+├── cli/                    # CLI application
+│   ├── __init__.py
+│   └── main.py            # Command-line interface
+├── backend/               # Backend API
+│   ├── __init__.py
+│   └── api/              # FastAPI application
+│       ├── __init__.py
+│       ├── api.py        # API endpoints and worker
+│       ├── database.py   # SQLite models
+│       ├── test_api.py   # Test client
+│       ├── start_api.sh  # Startup script
+│       └── README.md     # API documentation
+├── core.py               # Shared transcription logic
+└── pyproject.toml        # Dependencies
+```
+
 ## Files Created/Modified
 
 ### New Files
@@ -11,35 +33,43 @@ Successfully implemented a production-ready FastAPI backend for the audio-to-not
    - Added support for passing API keys directly (not just from env vars)
    - Maintains all existing functionality (chunking, diarization, language detection)
 
-2. **database.py** (52 lines) - Database models and connection
+2. **backend/api/database.py** (52 lines) - Database models and connection
    - SQLite database with SQLAlchemy ORM
    - Job model: id, status, created_at, audio_filename, diarize, error_message, transcript_filename
    - **Security**: NO API key storage
 
-3. **api.py** (307 lines) - FastAPI application
+3. **backend/api/api.py** (307 lines) - FastAPI application
    - RESTful API with 4 endpoints
    - Async job queue and background worker
    - Retention policy with scheduled cleanup
    - Modern lifespan context manager
 
-4. **API_README.md** - Complete API documentation
+4. **backend/api/README.md** - Complete API documentation
    - Endpoint specifications with examples
    - Security notes
    - Usage workflows
 
-5. **test_api.py** - Test client script
+5. **backend/api/test_api.py** - Test client script
    - Automated workflow testing
    - Proper file handle management
 
-6. **start_api.sh** - Server startup script
+6. **backend/api/start_api.sh** - Server startup script
    - Environment variable checking
    - Easy server launch
 
+7. **cli/main.py** - CLI application
+   - Simplified to use core module
+   - Moved to dedicated CLI folder
+
+### Package Files
+8. **backend/__init__.py** - Backend package marker
+9. **backend/api/__init__.py** - API module marker
+10. **cli/__init__.py** - CLI package marker
+
 ### Modified Files
-1. **main.py** - Simplified to use core module
-2. **README.md** - Added API mode documentation
-3. **pyproject.toml** - Added FastAPI dependencies
-4. **.gitignore** - Added jobs.db and jobs/ directory
+1. **README.md** - Updated with new structure and usage
+2. **pyproject.toml** - Added FastAPI dependencies
+3. **.gitignore** - Added jobs.db and jobs/ directory
 
 ## API Endpoints
 

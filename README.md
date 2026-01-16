@@ -6,6 +6,23 @@ Available in two modes:
 - **CLI**: Command-line tool for local transcription
 - **API**: FastAPI backend with job queue and retention for production use
 
+## Project Structure
+
+```
+audio-to-notes/
+├── cli/                 # CLI application
+│   └── main.py         # Command-line interface
+├── backend/            # Backend API
+│   └── api/           # FastAPI application
+│       ├── api.py     # API endpoints and worker
+│       ├── database.py # SQLite models
+│       ├── test_api.py # Test client
+│       ├── start_api.sh # Startup script
+│       └── README.md   # API documentation
+├── core.py            # Shared transcription logic
+└── pyproject.toml     # Dependencies
+```
+
 ## Prerequisites
 
 - Python 3.10+
@@ -41,13 +58,18 @@ If you want to use speaker diarization, you need a HuggingFace token:
 Basic transcription:
 
 ```bash
-uv run --env-file .env main.py <audio_file>
+uv run --env-file .env cli/main.py <audio_file>
 ```
 
 With speaker diarization (identifies different speakers):
 
 ```bash
-uv run --env-file .env main.py --diarize <audio_file>
+uv run --env-file .env cli/main.py --diarize <audio_file>
+```
+
+Or from the project root:
+```bash
+python -m cli.main <audio_file>
 ```
 
 ### API Mode
@@ -55,10 +77,14 @@ uv run --env-file .env main.py --diarize <audio_file>
 Run the FastAPI server:
 
 ```bash
-uvicorn api:app --host 0.0.0.0 --port 8000
+# From project root
+uvicorn backend.api.api:app --host 0.0.0.0 --port 8000
+
+# Or use the startup script
+./backend/api/start_api.sh
 ```
 
-Then use the REST API to create jobs, check status, and download transcripts. See [API_README.md](API_README.md) for complete API documentation.
+Then use the REST API to create jobs, check status, and download transcripts. See [backend/api/README.md](backend/api/README.md) for complete API documentation.
 
 **Quick example:**
 ```bash

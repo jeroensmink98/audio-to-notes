@@ -1,7 +1,12 @@
 """CLI for audio transcription using core transcription module."""
 import os
+import sys
 from glob import glob
 import argparse
+
+# Add parent directory to path to import core module
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from core import (
     transcribe_audio_file,
     transcribe_audio_file_with_diarization,
