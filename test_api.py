@@ -27,10 +27,11 @@ def create_job(audio_file: str, api_key: str, diarize: bool = False):
         return None
     
     headers = {"X-OpenAI-API-Key": api_key}
-    files = {"file": open(audio_file, "rb")}
     data = {"diarize": str(diarize).lower()}
     
-    response = requests.post(f"{API_BASE_URL}/jobs", headers=headers, files=files, data=data)
+    with open(audio_file, "rb") as f:
+        files = {"file": f}
+        response = requests.post(f"{API_BASE_URL}/jobs", headers=headers, files=files, data=data)
     
     print(f"Status: {response.status_code}")
     if response.status_code == 200:

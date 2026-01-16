@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, Header
 from fastapi.responses import FileResponse
@@ -32,13 +33,11 @@ JOBS_OUTPUT_DIR = JOBS_DIR / "output"
 JOBS_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 JOBS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Initialize FastAPI app
-app = FastAPI(title="Audio to Notes API", version="1.0.0")
-
 # In-memory job queue and worker state
 job_queue: asyncio.Queue = asyncio.Queue()
 api_keys_cache: Dict[str, str] = {}  # job_id -> api_key (memory only)
 worker_task: Optional[asyncio.Task] = None
+scheduler: Optional[BackgroundScheduler] = None
 
 
 async def process_job(job_id: str, audio_path: str, diarize: bool, openai_api_key: str, db: Session):
@@ -144,38 +143,41 @@ def cleanup_old_jobs():
     finally:
         db.close()
 
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database and start background worker."""
-    global worker_task
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    global worker_task, scheduler
     
-    # Initialize database
+    # Startup
     init_db()
     logger.info("Database initialized")
     
-    # Start background worker
     worker_task = asyncio.create_task(worker())
     logger.info("Background worker started")
     
-    # Start cleanup scheduler (runs every 30 minutes)
     scheduler = BackgroundScheduler()
     scheduler.add_job(cleanup_old_jobs, 'interval', minutes=30)
     scheduler.start()
     logger.info("Cleanup scheduler started (runs every 30 minutes)")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown."""
-    global worker_task
+    
+    yield
+    
+    # Shutdown
     if worker_task:
         worker_task.cancel()
         try:
             await worker_task
         except asyncio.CancelledError:
             pass
+    
+    if scheduler:
+        scheduler.shutdown()
+    
     logger.info("Application shutdown complete")
+
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(title="Audio to Notes API", version="1.0.0", lifespan=lifespan)
 
 
 @app.post("/jobs")
