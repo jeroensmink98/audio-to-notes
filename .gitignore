@@ -215,6 +215,10 @@ input
 
 *.mp3
 
+# FastAPI backend files
+jobs.db
+jobs/
+
 # specific test files
 !tests/outputs/jfk_speech_outputs.txt
 !tests/inputs/jfk_speech_input.mp3
