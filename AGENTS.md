@@ -20,13 +20,24 @@ Audio to Notes is a Python CLI tool that transcribes audio files using the OpenA
 
 ```
 /
-├── main.py           # Main application code (all logic in single file)
-├── pyproject.toml    # Project dependencies and metadata
-├── uv.lock           # Locked dependencies
-├── .env              # Environment variables (not in git)
-├── input/            # Default input directory for audio files (gitignored)
-├── output/           # Transcription output directory (gitignored)
-└── chunks/           # Temporary audio chunks during processing (gitignored)
+├── cli/               # CLI application
+│   └── main.py       # Command-line interface
+├── backend/          # Backend API
+│   └── api/         # FastAPI application
+│       ├── api.py   # API endpoints and worker
+│       ├── database.py # SQLite models
+│       ├── test_api.py # Test client
+│       └── start_api.sh # Startup script
+├── core.py          # Shared transcription logic
+├── pyproject.toml   # Project dependencies and metadata
+├── uv.lock          # Locked dependencies
+├── .env             # Environment variables (not in git)
+├── input/           # Default input directory for audio files (gitignored)
+├── output/          # Transcription output directory (gitignored)
+├── chunks/          # Temporary audio chunks during processing (gitignored)
+└── jobs/            # API job storage (gitignored)
+    ├── audio/       # Uploaded audio files
+    └── output/      # Generated transcripts
 ```
 
 ## Development Setup
@@ -51,20 +62,35 @@ Audio to Notes is a Python CLI tool that transcribes audio files using the OpenA
 
 ## Running the Application
 
+### CLI Mode
+
 Basic transcription:
 ```bash
-uv run --env-file .env main.py <audio_file>
+uv run --env-file .env cli/main.py <audio_file>
 ```
 
 With speaker diarization:
 ```bash
-uv run --env-file .env main.py --diarize <audio_file>
+uv run --env-file .env cli/main.py --diarize <audio_file>
 ```
 
 Process all files in `input/` directory:
 ```bash
-uv run --env-file .env main.py
+uv run --env-file .env cli/main.py
 ```
+
+### API Mode
+
+Start the FastAPI server:
+```bash
+# Using the startup script
+./backend/api/start_api.sh
+
+# Or using uvicorn directly
+uvicorn backend.api.api:app --host 0.0.0.0 --port 8000
+```
+
+See `backend/api/README.md` for API documentation.
 
 ## Key Code Patterns
 
