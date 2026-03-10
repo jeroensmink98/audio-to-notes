@@ -388,6 +388,7 @@ def transcribe_audio(
     chunks_dir: str,
     chunk_length: int = DEFAULT_CHUNK_LENGTH,
     retry_delay: int = 5,
+    language: Optional[str] = None,
     progress_callback: Optional[Callable[[str], None]] = None,
 ) -> TranscriptionResult:
     """Transcribe an audio file by chunking and transcribing each part.
@@ -413,12 +414,16 @@ def transcribe_audio(
     chunk_paths = chunk_audio(audio_file, chunks_dir, chunk_length, duration)
     log(f"Created {len(chunk_paths)} chunks.")
 
-    # Detect language from first chunk
-    detected_language = DEFAULT_INPUT_LANGUAGE
-    if chunk_paths:
-        detected_language = detect_language_from_chunk(
-            chunk_paths[0], progress_callback=progress_callback
-        )
+    # Determine language: use provided override if given, otherwise auto-detect
+    if language:
+        detected_language = language
+        log(f"Using provided language: {detected_language}")
+    else:
+        detected_language = DEFAULT_INPUT_LANGUAGE
+        if chunk_paths:
+            detected_language = detect_language_from_chunk(
+                chunk_paths[0], progress_callback=progress_callback
+            )
 
     transcript = ""
     for chunk_path in chunk_paths:
@@ -441,6 +446,7 @@ def transcribe_audio_with_diarization(
     hf_token: str,
     min_segment_duration: float = DEFAULT_MIN_SEGMENT_DURATION,
     retry_delay: int = 5,
+    language: Optional[str] = None,
     progress_callback: Optional[Callable[[str], None]] = None,
 ) -> DiarizedTranscriptionResult:
     """Transcribe an audio file with speaker diarization.
@@ -475,13 +481,17 @@ def transcribe_audio_with_diarization(
     )
     log(f"Grouped into {len(grouped_segments)} speech segments")
 
-    # Step 3: Detect language from first 30 seconds of the audio
-    first_segment_path = extract_audio_segment(audio_file, 0, 30)
-    detected_language = detect_language_from_chunk(
-        first_segment_path, progress_callback=progress_callback
-    )
-    os.unlink(first_segment_path)
-    log(f"Using detected language: {detected_language}")
+    # Step 3: Determine language: use provided override if given, otherwise auto-detect
+    if language:
+        detected_language = language
+        log(f"Using provided language: {detected_language}")
+    else:
+        first_segment_path = extract_audio_segment(audio_file, 0, 30)
+        detected_language = detect_language_from_chunk(
+            first_segment_path, progress_callback=progress_callback
+        )
+        os.unlink(first_segment_path)
+        log(f"Using detected language: {detected_language}")
 
     # Step 4: Transcribe each segment
     transcript_parts = []

@@ -44,6 +44,20 @@ With speaker diarization (identifies different speakers):
 uv run --env-file .env main.py --diarize <audio_file>
 ```
 
+Specify the input language explicitly (skips automatic language detection) using a
+two-letter language code such as `en` (English) or `nl` (Dutch):
+
+```bash
+# Basic transcription in Dutch
+uv run --env-file .env main.py --language nl <audio_file>
+
+# Or shorthand flag
+uv run --env-file .env main.py -l nl <audio_file>
+
+# With diarization in English
+uv run --env-file .env main.py --diarize --language en <audio_file>
+```
+
 ## How it works
 
 **Basic mode**: The audio file is split into 5-minute chunks using ffmpeg, each chunk is transcribed via OpenAI Whisper, and the transcripts are combined into a single output file.

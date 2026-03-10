@@ -24,7 +24,7 @@ AUDIO_DIR = "input"  # Default input directory
 OUTPUT_DIR = "output"  # Default output directory
 
 
-def transcribe_audio_file(audio_file: str) -> None:
+def transcribe_audio_file(audio_file: str, language: str | None = None) -> None:
     """Transcribe an audio file and write the result to a file.
 
     This is a CLI wrapper around the core transcription function.
@@ -36,6 +36,7 @@ def transcribe_audio_file(audio_file: str) -> None:
         openai_client=client,
         chunks_dir=CHUNKS_DIR,
         chunk_length=DEFAULT_CHUNK_LENGTH,
+        language=language,
         progress_callback=print,
     )
 
@@ -48,7 +49,9 @@ def transcribe_audio_file(audio_file: str) -> None:
     print(f"Transcript written to {output_path}")
 
 
-def transcribe_audio_file_with_diarization(audio_file: str) -> None:
+def transcribe_audio_file_with_diarization(
+    audio_file: str, language: str | None = None
+) -> None:
     """Transcribe an audio file with speaker diarization and write the result to a file.
 
     This is a CLI wrapper around the core diarization function.
@@ -66,6 +69,7 @@ def transcribe_audio_file_with_diarization(audio_file: str) -> None:
         openai_client=client,
         hf_token=hf_token,
         min_segment_duration=DEFAULT_MIN_SEGMENT_DURATION,
+        language=language,
         progress_callback=print,
     )
 
@@ -94,6 +98,14 @@ def main():
         "--diarize",
         action="store_true",
         help="Enable speaker diarization (requires HF_TOKEN environment variable)",
+    )
+    parser.add_argument(
+        "--language",
+        "-l",
+        help=(
+            "Optional two-letter language code (e.g. 'en', 'nl'). "
+            "When provided, automatic language detection is skipped."
+        ),
     )
     args = parser.parse_args()
 
@@ -127,9 +139,9 @@ def main():
     for audio_file in audio_files:
         print(f"Processing: {audio_file}")
         if args.diarize:
-            transcribe_audio_file_with_diarization(audio_file)
+            transcribe_audio_file_with_diarization(audio_file, language=args.language)
         else:
-            transcribe_audio_file(audio_file)
+            transcribe_audio_file(audio_file, language=args.language)
     print("All done!")
 
 

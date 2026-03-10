@@ -20,6 +20,8 @@ from core import (
     DEFAULT_CHUNK_LENGTH,
     DEFAULT_MIN_SEGMENT_DURATION,
     DEFAULT_INPUT_LANGUAGE,
+    transcribe_audio,
+    transcribe_audio_with_diarization,
 )
 
 
@@ -227,9 +229,9 @@ class TestCoreModuleImports:
     """Tests to ensure all public API is importable."""
 
     def test_import_main_functions(self):
-        from core import transcribe_audio, transcribe_audio_with_diarization
-        assert callable(transcribe_audio)
-        assert callable(transcribe_audio_with_diarization)
+        from core import transcribe_audio as import_transcribe_audio, transcribe_audio_with_diarization as import_transcribe_audio_with_diarization
+        assert callable(import_transcribe_audio)
+        assert callable(import_transcribe_audio_with_diarization)
 
     def test_import_utility_functions(self):
         from core import get_audio_duration, format_duration
@@ -251,6 +253,81 @@ class TestCoreModuleImports:
         assert callable(detect_language_from_chunk)
         assert callable(diarize_audio)
         assert callable(group_speaker_segments)
+
+
+class TestLanguageOverrideBehavior:
+    """Tests for explicit language override behavior in core transcription functions."""
+
+    def test_transcribe_audio_uses_provided_language_and_skips_detection(self):
+        mock_client = MagicMock()
+        mock_client.audio.transcriptions.create.return_value = MagicMock(
+            text="Chunk transcript"
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("core.transcription.get_audio_duration", return_value=60), patch(
+                "core.transcription.chunk_audio",
+                return_value=[os.path.join(temp_dir, "chunk_001.mp3")],
+            ), patch("core.transcription.detect_language_from_chunk") as mock_detect, patch(
+                "core.transcription.transcribe_chunk", return_value="Chunk transcript"
+            ) as mock_transcribe:
+                result = transcribe_audio(
+                    audio_file="dummy.mp3",
+                    openai_client=mock_client,
+                    chunks_dir=temp_dir,
+                    language="nl",
+                )
+
+        assert isinstance(result, TranscriptionResult)
+        assert result.language == "nl"
+        mock_detect.assert_not_called()
+        mock_transcribe.assert_called_once()
+        # Ensure language was passed through to transcribe_chunk
+        _, kwargs = mock_transcribe.call_args
+        assert kwargs.get("language") == "nl"
+
+    def test_transcribe_audio_with_diarization_uses_provided_language_and_skips_detection(
+        self,
+    ):
+        mock_client = MagicMock()
+        mock_client.audio.transcriptions.create.return_value = MagicMock(
+            text="Segment transcript"
+        )
+
+        segments = [
+            {"start": 0.0, "end": 5.0, "speaker": "SPEAKER_00"},
+            {"start": 5.0, "end": 10.0, "speaker": "SPEAKER_01"},
+        ]
+
+        with patch(
+            "core.transcription.get_audio_duration", return_value=10
+        ), patch(
+            "core.transcription.diarize_audio", return_value=segments
+        ), patch(
+            "core.transcription.group_speaker_segments", return_value=segments
+        ), patch(
+            "core.transcription.extract_audio_segment", return_value="segment.mp3"
+        ) as mock_extract, patch(
+            "core.transcription.detect_language_from_chunk"
+        ) as mock_detect, patch(
+            "core.transcription.transcribe_chunk", return_value="Segment transcript"
+        ) as mock_transcribe:
+            result = transcribe_audio_with_diarization(
+                audio_file="dummy.mp3",
+                openai_client=mock_client,
+                hf_token="fake-token",
+                language="de",
+            )
+
+        assert isinstance(result, DiarizedTranscriptionResult)
+        assert result.language == "de"
+        # We should still extract audio segments for diarization, but not for language detection
+        assert mock_extract.call_count == len(segments)
+        mock_detect.assert_not_called()
+        # transcribe_chunk should be called once per segment with the provided language
+        assert mock_transcribe.call_count == len(segments)
+        for _, kwargs in mock_transcribe.call_args_list:
+            assert kwargs.get("language") == "de"
 
     def test_import_data_classes(self):
         from core import TranscriptPart, TranscriptionResult, DiarizedTranscriptionResult
