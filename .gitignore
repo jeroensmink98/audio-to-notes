@@ -214,7 +214,10 @@ output
 input
 
 *.mp3
+*.mp4a
 
 # specific test files
 !tests/outputs/jfk_speech_outputs.txt
 !tests/inputs/jfk_speech_input.mp3
+
+input/*
